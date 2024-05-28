@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Roteamento com Leaflet, ViaCEP e Ponto de Recarga</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    #inputs {
+      margin: 10px;
+      border-radius: 1rem;
+      padding: 5rem;
+      background: #f9f9f9;
+      border-radius: 1rem;
+    }
+
+    #inputs label,
+    #inputs input {
+      display: block;
+      margin: 5px 0;
+      border-radius: 1rem;
+      padding: 1rem;
+    }
+
+    #inputs button {
+      margin-top: 10px;
+      padding: 10px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    #inputs button:hover {
+      background-color: #0056b3;
+    }
+
+    #map {
+      height: 600px;
+      width: 80%;
+      margin: 20px 0;
+    }
+
+    #info {
+      width: 80%;
+      padding: 10px;
+      background: #f9f9f9;
+      border-radius: 5px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="inputs">
+    <label for="start">Endereço de Início:</label>
+    <input type="text" id="start" placeholder="Digite o CEP de início">
+    <label for="end">Endereço de Destino:</label>
+    <input type="text" id="end" placeholder="Digite o CEP de destino">
+    <label for="autonomia">Autonomia do Carro Elétrico (km):</label>
+    <input type="number" id="autonomia" placeholder="Digite a autonomia em km">
+    <button onclick="calculateRoute()">Calcular Rota</button>
+  </div>
+  <div id="map" style="border-radius:1rem;"></div>
+  <div id="info"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+  <script>
+    var map = L.map('map').setView([-23.55052, -46.633308], 13);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    var routingControl;
+
+    function getLatLngFromCEP(cep, callback) {
+      fetch(`https://viacep.com.br/ws/${cep}/json/`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.erro) {
+            alert("CEP não encontrado!");
+            return;
+          }
+          fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${data.logradouro},${data.localidade},${data.uf}`)
+            .then(response => response.json())
+            .then(results => {
+              if (results.length > 0) {
+                var latlng = [results[0].lat, results[0].lon];
+                callback(latlng);
+              } else {
+                alert("Endereço não encontrado!");
+              }
+            });
+        });
+    }
+
+    function calculateRoute() {
+      var startCEP = document.getElementById('start').value;
+      var endCEP = document.getElementById('end').value;
+      var autonomia = document.getElementById('autonomia').value;
+
+      if (!startCEP || !endCEP || !autonomia) {
+        alert("Por favor, insira todos os campos.");
+        return;
+      }
+
+      getLatLngFromCEP(startCEP, function (startLatLng) {
+        getLatLngFromCEP(endCEP, function (endLatLng) {
+          if (routingControl) {
+            map.removeControl(routingControl);
+          }
+
+          routingControl = L.Routing.control({
+            waypoints: [
+              L.latLng(startLatLng[0], startLatLng[1]),
+              L.latLng(endLatLng[0], endLatLng[1])
+            ],
+            routeWhileDragging: true,
+            router: L.Routing.osrmv1({
+              serviceUrl: 'https://router.project-osrm.org/route/v1'
+            }),
+            createMarker: function (i, wp, nWps) {
+              return L.marker(wp.latLng, {
+                draggable: true
+              });
+            }
+          }).on('routesfound', function (e) {
+            var routes = e.routes;
+            var summary = routes[0].summary;
+            var distance = summary.totalDistance / 1000; // distância em km
+            var duration = summary.totalTime / 60; // duração em minutos
+
+            var autonomiaKm = parseFloat(autonomia);
+            var tempoViagem = (distance / autonomiaKm) * (summary.totalTime / 3600);
+
+            document.getElementById('info').innerHTML = `Distância total: ${distance.toFixed(2)} km<br>Tempo estimado de viagem: ${Math.floor(duration)} minutos<br>`;
+
+            checkChargingPoints(endLatLng);
+          }).addTo(map);
+        });
+      });
+    }
+
+    function checkChargingPoints(latlng) {
+      fetch(`https://api.openchargemap.io/v3/poi/?output=json&latitude=${latlng[0]}&longitude=${latlng[1]}&distance=5&distanceunit=km`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.length > 0) {
+            var nearest = data[0];
+            var address = nearest.AddressInfo.AddressLine1 + ', ' + nearest.AddressInfo.Town + ', ' + nearest.AddressInfo.StateOrProvince + ', ' + nearest.AddressInfo.Postcode;
+            document.getElementById('info').innerHTML += `Pontos de recarga próximos ao destino: ${data.length}<br>Endereço do ponto mais próximo: ${address}`;
+            // Adiciona marcadores para os pontos de recarga
+            data.forEach((point) => {
+              L.marker([point.AddressInfo.Latitude, point.AddressInfo.Longitude]).addTo(map)
+                .bindPopup(`<b>${point.AddressInfo.Title}</b><br>${address}`);
+            });
+          } else {
+            document.getElementById('info').innerHTML += `Não há pontos de recarga próximos ao destino.`;
+          }
+        })
+        .catch(error => {
+          console.error('Erro ao verificar pontos de recarga:', error);
+          document.getElementById('info').innerHTML += `Erro ao verificar pontos de recarga ou não há pontos de recarga próximos ao destino.`;
+        });
+    }
+
+  </script>
+
+</body>
+
+</html>

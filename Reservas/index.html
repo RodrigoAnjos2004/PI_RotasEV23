@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa de Pontos de Recarga de Carros Elétricos</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        #map {
+            height: 400px;
+        }
+
+        .container {
+            font-family: Arial, sans-serif;
+        }
+
+        .saved-times {
+            margin-top: 20px;
+        }
+
+        .full {
+            color: red;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <div class="container mt-4">
+        <h2>Reservar Ponto de Recarga</h2>
+        <div class="form-group">
+            <label for="selectLocation">Selecione o Ponto de Recarga:</label>
+            <select class="form-control" id="selectLocation" onchange="selectChargingPoint(this.value)">
+                <!-- Options will be added dynamically -->
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="autonomyInput">Autonomia do Carro (em km):</label>
+            <input type="number" class="form-control" id="autonomyInput">
+        </div>
+
+        <div class="form-group">
+            <label for="batteryLevelInput">Nível da Bateria (%):</label>
+            <input type="number" class="form-control" id="batteryLevelInput">
+        </div>
+
+        <div class="form-group">
+            <label for="timeInput">Horário da Reserva:</label>
+            <input type="datetime-local" class="form-control" id="timeInput">
+        </div>
+
+        <div class="form-group form-check">
+            <input type="checkbox" class="form-check-input" id="confirmationToggle">
+            <label class="form-check-label" for="confirmationToggle">Confirmar Reserva</label>
+        </div>
+
+        <button type="button" class="btn btn-primary" onclick="reserveChargingPoint()">Reservar</button>
+        <div id="successMessage" class="mt-2" style="display: none; color: green;">Reserva realizada com sucesso!</div>
+    </div>
+
+    <div class="container mt-4 saved-times">
+        <h2>Horários Salvos</h2>
+        <ul id="savedTimes"></ul>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        // Simulando horários reservados
+        const savedTimes = [];
+
+        const chargingPoints = [
+            { lat: -23.5613, lng: -46.6552, type: "shopping", name: "Rua B", address: "Av. Paulista, 123", slots: 4, power: "50 kW", connector: "CCS Combo 2" },
+            { lat: -23.5802, lng: -46.6564, type: "office", name: "Rua C", address: "Av. Faria Lima, 456", slots: 2, power: "100 kW", connector: "Tesla Supercharger" },
+            { lat: -23.5755, lng: -46.6884, type: "park", name: "Rua D", address: "Rua Augusta, 789", slots: 3, power: "22 kW", connector: "Type 2" },
+            { lat: -23.5679, lng: -46.6463, type: "restaurant", name: "Rua E", address: "Alameda Santos, 1010", slots: 1, power: "50 kW", connector: "CHAdeMO" },
+            { lat: -23.5501, lng: -46.6985, type: "park", name: "Rua F", address: "Rua Oscar Freire, 1111", slots: 5, power: "100 kW", connector: "Tesla Supercharger" },
+            { lat: -23.5708, lng: -46.6116, type: "office", name: "Rua G", address: "Av. Engenheiro Luís Carlos Berrini, 555", slots: 2, power: "50 kW", connector: "CCS Combo 2" },
+            { lat: -23.6221, lng: -46.6997, type: "park", name: "Rua H", address: "Av. Brigadeiro Faria Lima, 1234", slots: 3, power: "22 kW", connector: "Type 2" },
+            // Adicionando mais 10 pontos muito longe
+            { lat: -23.7256, lng: -46.8207, type: "park", name: "Rua I", address: "Rua Joaquim Floriano, 500", slots: 4, power: "100 kW", connector: "Tesla Supercharger" },
+            { lat: -23.8153, lng: -46.6212, type: "shopping", name: "Rua J", address: "Av. dos Autonomistas, 1500", slots: 3, power: "50 kW", connector: "CCS Combo 2" },
+            { lat: -23.6224, lng: -46.8751, type: "office", name: "Rua K", address: "Rua Teodoro Sampaio, 1000", slots: 2, power: "22 kW", connector: "Type 2" },
+            { lat: -23.6529, lng: -46.7634, type: "park", name: "Rua L", address: "Av. Dr. Vital Brasil, 500", slots: 1, power: "50 kW", connector: "CHAdeMO" },
+            { lat: -23.5456, lng: -46.9812, type: "restaurant", name: "Rua M", address: "Av. Morumbi, 800", slots: 2, power: "22 kW", connector: "Type 2" },
+            { lat: -23.9102, lng: -46.5356, type: "park", name: "Rua N", address: "Av. Presidente Kennedy, 1500", slots: 3, power: "100 kW", connector: "Tesla Supercharger" },
+            { lat: -23.9876, lng: -46.6432, type: "office", name: "Rua O", address: "Av. Brasil, 2000", slots: 2, power: "50 kW", connector: "CCS Combo 2" },
+            { lat: -23.8034, lng: -46.7821, type: "park", name: "Rua P", address: "Rua Manoel da Nóbrega, 800", slots: 4, power: "22 kW", connector: "Type 2" },
+            { lat: -24.0278, lng: -46.6491, type: "shopping", name: "Rua Q", address: "Av. São Paulo, 300", slots: 3, power: "50 kW", connector: "CHAdeMO" },
+            { lat: -23.4826, lng: -46.9783, type: "restaurant", name: "Rua R", address: "Av. das Nações Unidas, 1000", slots: 2, power: "22 kW", connector: "Type 2" }
+            // Adicione mais conforme necessário
+        ];
+        let markers = [];
+        let map;
+
+        function initMap() {
+            map = L.map('map').setView([-23.5505, -46.6333], 12); // Centro de São Paulo como ponto de referência
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+
+            // Define o ícone do marcador
+            const energyIcon = L.icon({
+                iconUrl: 'https://tatacars.sipradi.com.np/assets/img/charginglocation.png',
+                iconSize: [32, 37],
+                iconAnchor: [16, 37],
+                popupAnchor: [0, -30]
+            });
+
+            // Adiciona marcadores para cada ponto de recarga
+            chargingPoints.forEach((point) => {
+                const marker = L.marker([point.lat, point.lng], { icon: energyIcon }).addTo(map);
+                marker.bindPopup(`
+      <b>${point.name}</b><br>
+      Endereço: ${point.address}<br>
+      Tipo: ${point.type}<br>
+      Vagas disponíveis: <span id="${point.name}-slots">${point.slots}</span><br>
+      Potência: ${point.power}<br>
+      Conector: ${point.connector}
+    `);
+                markers.push(marker);
+
+                // Adiciona o ponto ao seletor de locais
+                const selectLocation = document.getElementById('selectLocation');
+                const option = document.createElement('option');
+                option.value = point.name;
+                option.textContent = `${point.name} - ${point.address}`;
+                selectLocation.appendChild(option);
+            });
+        }
+
+        function selectChargingPoint(locationName) {
+            const selectedPoint = chargingPoints.find((point) => point.name === locationName);
+            map.setView([selectedPoint.lat, selectedPoint.lng], 15);
+        }
+
+        function reserveChargingPoint() {
+            const locationName = document.getElementById('selectLocation').value;
+            const autonomy = document.getElementById('autonomyInput').value;
+            const batteryLevel = document.getElementById('batteryLevelInput').value;
+            const time = document.getElementById('timeInput').value;
+            const confirmed = document.getElementById('confirmationToggle').checked;
+
+            // Reduz a quantidade de vagas disponíveis
+            const slotsElement = document.getElementById(`${locationName}-slots`);
+            let slots = parseInt(slotsElement.textContent);
+            if (slots > 0) {
+                slots--;
+                slotsElement.textContent = slots;
+                if (slots === 0) {
+                    slotsElement.parentElement.classList.add('full');
+                }
+            }
+
+            // Calcula a autonomia com base na distância até o ponto de recarga e na porcentagem da bateria.
+            const selectedPoint = chargingPoints.find((point) => point.name === locationName);
+            const distance = calculateDistance(selectedPoint.lat, selectedPoint.lng);
+            const autonomyBasedOnDistance = Math.floor((autonomy / 100) * distance);
+
+            // Calcula a autonomia com base na porcentagem da bateria
+            const autonomyBasedOnBattery = Math.floor((autonomy / 100) * selectedPoint.power);
+
+            // Autonomia final é o menor valor entre a autonomia baseada na distância e na bateria
+            const finalAutonomy = Math.min(autonomyBasedOnDistance, autonomyBasedOnBattery);
+
+            // Calcula o tempo de recarga
+            const timeToCharge = Math.ceil((100 - batteryLevel) / 10) * 30; // Supondo 30 minutos para cada 10% de carga
+
+            // Adicionar lógica para salvar o horário e local de reserva
+            savedTimes.push({
+                location: locationName,
+                time,
+                confirmed,
+                timeToCharge,
+                autonomy: finalAutonomy
+            });
+
+            // Limpar campos após a reserva
+            document.getElementById('autonomyInput').value = '';
+            document.getElementById('batteryLevelInput').value = '';
+            document.getElementById('timeInput').value = '';
+            document.getElementById('confirmationToggle').checked = false;
+
+            // Atualizar lista de horários salvos e exibir mensagem de sucesso
+            displaySavedTimes();
+            document.getElementById('successMessage').style.display = 'block';
+            setTimeout(() => {
+                document.getElementById('successMessage').style.display = 'none';
+            }, 3000);
+        }
+
+        function displaySavedTimes() {
+            const savedTimesList = document.getElementById('savedTimes');
+            savedTimesList.innerHTML = '';
+
+            savedTimes.forEach((reservation, index) => {
+                const listItem = document.createElement('li');
+                listItem.textContent = `Reserva ${index + 1}: Local: ${reservation.location}, Horário: ${reservation.time}, Confirmada: ${reservation.confirmed ? 'Sim' : 'Não'}, Tempo de recarga: ${reservation.timeToCharge} minutos, Autonomia estimada: ${reservation.autonomy} km`;
+                savedTimesList.appendChild(listItem);
+            });
+        }
+
+        function calculateDistance(lat2, lon2) {
+            const lat1 = -23.5505;
+            const lon1 = -46.6333;
+
+            const R = 6371; // Raio da Terra em km
+            const dLat = deg2rad(lat2 - lat1);
+            const dLon = deg2rad(lon2 - lon1);
+            const a =
+                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            const d = R * c; // Distância em km
+            return d;
+        }
+
+        function deg2rad(deg) {
+            return deg * (Math.PI / 180);
+        }
+    </script>
+    <script>
+        window.onload = function () {
+            initMap();
+        };
+    </script>
+</body>
+
+</html>
